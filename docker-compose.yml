@@ -1,0 +1,39 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    container_name: keycloak_med
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/Telemedicina-Realm.json:/opt/keycloak/data/import/Telemedicina-Realm.json:ro
+
+  backend:
+    build: ./backend
+    container_name: prontuarios_api
+    depends_on:
+      - keycloak
+    environment:
+      # O token tem iss=localhost:8080 (visto pelo navegador); as chaves são buscadas pela rede do compose.
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/Telemedicina-Realm
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/Telemedicina-Realm/protocol/openid-connect/certs
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      CORS_ORIGIN: http://localhost:4200
+    ports:
+      - "8081:8081"
+    volumes:
+      - chave-servidor:/data/keys
+
+  frontend:
+    build: ./frontend
+    container_name: portal_medico
+    depends_on:
+      - backend
+    ports:
+      - "4200:80"
+
+volumes:
+  chave-servidor:

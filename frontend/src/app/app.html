@@ -1,0 +1,118 @@
+<header class="topo">
+  <div>
+    <h1>Portal do Médico</h1>
+    <p>Prontuário seguro · OIDC (Keycloak) · JWS ES256 · ECDH-ES P-256 · JWE (Nested JWT)</p>
+  </div>
+  <div class="sessao">
+    @if (auth.autenticado()) {
+      <span>Médico: <strong>{{ auth.usuario() }}</strong></span>
+      <button class="sec" (click)="auth.logout()">Sair</button>
+    } @else {
+      <button (click)="auth.login()">Entrar com Keycloak</button>
+    }
+  </div>
+</header>
+
+@if (erro()) {
+  <div class="erro" role="alert">{{ erro() }}</div>
+}
+
+<main>
+  <section class="card">
+    <h2>1. Autenticação OIDC</h2>
+    @if (accessToken(); as t) {
+      <p class="dica">Access token (JWS RS256 emitido pelo Keycloak), decodificado:</p>
+      <pre>{{ t.header | json }}</pre>
+      <pre>{{ t.payload | json }}</pre>
+    } @else {
+      <p class="dica">Entre com <code>dr.silva</code> para obter o access token.</p>
+    }
+  </section>
+
+  <section class="card">
+    <h2>2. Chaves</h2>
+    <h3>Servidor (estática, ECDH-ES) — <code>GET /api/chave-publica</code></h3>
+    @if (chaveServidor(); as k) {
+      <pre>{{ k | json }}</pre>
+    }
+    <h3>Médico (ES256, assinatura do laudo)</h3>
+    <p class="dica">
+      A chave privada é gerada no navegador como <em>não-extraível</em> (IndexedDB); só a pública é enviada.
+    </p>
+    <div class="acoes">
+      <button [disabled]="!auth.autenticado() || ocupado()" (click)="gerarChave()">Gerar par ES256</button>
+      <button
+        class="sec"
+        [disabled]="!chaveMedico() || ocupado()"
+        (click)="registrarChave()"
+      >
+        Registrar pública no Keycloak
+      </button>
+    </div>
+    @if (chaveMedico(); as k) {
+      <pre>{{ k | json }}</pre>
+    }
+    @if (chaveRegistrada(); as r) {
+      <p [class]="r.status < 300 ? 'ok' : 'falha'">PUT /api/medico/chave-publica → {{ r.status }}</p>
+    }
+  </section>
+
+  <section class="card largo">
+    <h2>3. Laudo → Nested JWT (Sign-then-Encrypt)</h2>
+    <div class="form">
+      <label>Paciente <input [value]="laudo().paciente_id" (input)="atualizar('paciente_id', $event)" /></label>
+      <label>Diagnóstico <input [value]="laudo().diagnostico" (input)="atualizar('diagnostico', $event)" /></label>
+      <label>Prescrição <input [value]="laudo().prescricao" (input)="atualizar('prescricao', $event)" /></label>
+    </div>
+    <div class="acoes">
+      <button [disabled]="!chaveMedico() || ocupado()" (click)="enviar()">Assinar, cifrar e enviar</button>
+      <button class="perigo" [disabled]="!chaveMedico() || ocupado()" (click)="enviar(true)">
+        Simular atacante (assinatura forjada)
+      </button>
+      <button class="sec" [disabled]="!tokenAninhado() || ocupado()" (click)="reenviar()">
+        Reenviar mesmo JWE (replay)
+      </button>
+    </div>
+
+    @if (resposta(); as r) {
+      <p [class]="r.status < 300 ? 'ok' : 'falha'">POST /api/prontuarios → {{ r.status }}</p>
+      <pre>{{ r.corpo | json }}</pre>
+    }
+
+    @if (tokenAninhado(); as t) {
+      <h3>Passo 1 — JWS (3 partes) assinado com ES256</h3>
+      <pre class="quebra">{{ t.jws }}</pre>
+      <div class="duas">
+        <pre>{{ t.jwsHeader | json }}</pre>
+        <pre>{{ t.jwsPayload | json }}</pre>
+      </div>
+
+      <h3>Passo 2 — JWE (5 partes) com ECDH-ES + A128GCM</h3>
+      <pre class="quebra">{{ t.jwe }}</pre>
+      <p class="dica">Header protegido: <code>alg</code>, <code>enc</code>, <code>cty</code> e <code>epk</code> (chave efêmera do cliente).</p>
+      <pre>{{ t.jweDecomposto.protectedHeader | json }}</pre>
+      <table>
+        <thead><tr><th>Parte</th><th>Tamanho</th><th>Valor (base64url)</th></tr></thead>
+        <tbody>
+          @for (p of t.jweDecomposto.partes; track p.nome) {
+            <tr>
+              <td>{{ p.nome }}</td>
+              <td>{{ p.bytes }} B</td>
+              <td class="quebra">{{ p.valor || '(vazio)' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </section>
+
+  <section class="card largo">
+    <h2>4. Prontuários aceitos pelo servidor</h2>
+    <div class="acoes">
+      <button class="sec" [disabled]="!auth.autenticado() || ocupado()" (click)="listar()">Listar</button>
+    </div>
+    @if (prontuarios(); as r) {
+      <pre>{{ r.corpo | json }}</pre>
+    }
+  </section>
+</main>
